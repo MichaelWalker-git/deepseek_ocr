@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DegreeData 100% Accuracy Pipeline - Data Flow Diagram</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #718096;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .diagram-container {
+            position: relative;
+            width: 100%;
+            height: 800px;
+            overflow: auto;
+        }
+
+        /* Process Nodes */
+        .node {
+            position: absolute;
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .node:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .node.storage {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            width: 180px;
+            height: 60px;
+        }
+
+        .node.process {
+            background: linear-gradient(135deg, #48bb78, #38a169);
+            color: white;
+            width: 200px;
+            height: 70px;
+        }
+
+        .node.decision {
+            background: linear-gradient(135deg, #ed8936, #dd6b20);
+            color: white;
+            width: 160px;
+            height: 80px;
+            clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+            padding: 25px 20px;
+        }
+
+        .node.human {
+            background: linear-gradient(135deg, #4299e1, #3182ce);
+            color: white;
+            width: 180px;
+            height: 70px;
+        }
+
+        .node.output {
+            background: linear-gradient(135deg, #9f7aea, #805ad5);
+            color: white;
+            width: 180px;
+            height: 60px;
+        }
+
+        .node.monitoring {
+            background: linear-gradient(135deg, #f687b3, #ed64a6);
+            color: white;
+            width: 160px;
+            height: 60px;
+        }
+
+        /* Flow Arrows */
+        svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .arrow {
+            stroke: #4a5568;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+            opacity: 0.7;
+        }
+
+        .arrow.animated {
+            stroke-dasharray: 5, 5;
+            animation: dash 1s linear infinite;
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -10;
+            }
+        }
+
+        .arrow.success {
+            stroke: #48bb78;
+            stroke-width: 3;
+        }
+
+        .arrow.error {
+            stroke: #f56565;
+            stroke-width: 3;
+        }
+
+        /* Labels */
+        .label {
+            position: absolute;
+            font-size: 11px;
+            color: #4a5568;
+            background: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+            z-index: 2;
+        }
+
+        /* Info Boxes */
+        .info-box {
+            position: absolute;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 11px;
+            color: #2d3748;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            display: none;
+        }
+
+        .node:hover+.info-box {
+            display: block;
+        }
+
+        /* Legend */
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            z-index: 5;
+        }
+
+        .legend h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #2d3748;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .legend-color {
+            width: 30px;
+            height: 20px;
+            border-radius: 4px;
+            margin-right: 8px;
+        }
+
+        /* Metrics Dashboard */
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, #f7fafc, #edf2f7);
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 5px;
+        }
+
+        .node {
+            z-index: 3;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>DegreeData 100% Accuracy Pipeline</h1>
+        <p class="subtitle">End-to-End Data Flow Architecture</p>
+
+        <div class="diagram-container">
+            <!-- Storage Nodes -->
+            <div class="node storage" style="left: 50px; top: 100px;">
+                S3: Raw Catalogs<br>(PDFs/Web)
+            </div>
+
+            <!-- Processing Layer -->
+            <div class="node process" style="left: 280px; top: 90px;">
+                Step Functions<br>Orchestrator
+            </div>
+
+            <div class="node process" style="left: 530px; top: 90px;">
+                DeepSeek-OCR<br>SageMaker Endpoint
+            </div>
+
+            <!-- Decision Points -->
+            <div class="node decision" style="left: 780px; top: 80px;">
+                Confidence<br>Check
+            </div>
+
+            <!-- Human Review Tier 1 -->
+            <div class="node human" style="left: 600px; top: 230px;">
+                A2I Tier 1<br>5-Person Consensus
+            </div>
+
+            <!-- Human Review Tier 2 -->
+            <div class="node human" style="left: 900px; top: 230px;">
+                A2I Tier 2<br>Expert Review
+            </div>
+
+            <!-- Consensus Decision -->
+            <div class="node decision" style="left: 600px; top: 360px;">
+                Consensus<br>≥60%?
+            </div>
+
+            <!-- Data Storage -->
+            <div class="node storage" style="left: 750px; top: 490px;">
+                DynamoDB<br>Validated Courses
+            </div>
+
+            <div class="node output" style="left: 750px; top: 600px;">
+                RDS MySQL<br>Production Data
+            </div>
+
+            <!-- Monitoring Components -->
+            <div class="node monitoring" style="left: 50px; top: 400px;">
+                React Admin<br>Dashboard
+            </div>
+
+            <div class="node monitoring" style="left: 50px; top: 500px;">
+                CloudWatch<br>Metrics
+            </div>
+
+            <!-- Additional Process Nodes -->
+            <div class="node process" style="left: 280px; top: 230px;">
+                Multi-Page<br>Detection
+            </div>
+
+            <div class="node process" style="left: 280px; top: 360px;">
+                Validation<br>Rules Engine
+            </div>
+
+            <div class="node storage" style="left: 1050px; top: 490px;">
+                S3: Audit Trail<br>& Corrections
+            </div>
+
+            <!-- SVG for Arrows -->
+            <svg>
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                        <polygon points="0 0, 10 5, 0 10" fill="#4a5568" />
+                    </marker>
+                </defs>
+
+                <!-- Main Flow -->
+                <path class="arrow animated" d="M 230 130 L 280 130" />
+                <path class="arrow animated" d="M 480 130 L 530 130" />
+                <path class="arrow" d="M 730 130 L 780 130" />
+
+                <!-- Confidence branches -->
+                <path class="arrow success" d="M 860 140 L 680 230" />
+                <path class="arrow error" d="M 900 160 L 900 230" />
+
+                <!-- Consensus flow -->
+                <path class="arrow" d="M 680 300 L 680 360" />
+                <path class="arrow" d="M 980 300 L 750 400" />
+
+                <!-- Success path -->
+                <path class="arrow success" d="M 680 440 L 750 490" />
+
+                <!-- Failure path -->
+                <path class="arrow error" d="M 700 400 L 900 300" />
+
+                <!-- To production -->
+                <path class="arrow animated" d="M 840 550 L 840 600" />
+
+                <!-- Monitoring connections -->
+                <path class="arrow" d="M 210 430 L 600 300" stroke-dasharray="3,3" />
+                <path class="arrow" d="M 210 530 L 750 550" stroke-dasharray="3,3" />
+
+                <!-- Multi-page detection -->
+                <path class="arrow" d="M 380 180 L 380 230" />
+                <path class="arrow" d="M 480 265 L 600 265" />
+
+                <!-- Validation -->
+                <path class="arrow" d="M 380 300 L 380 360" />
+                <path class="arrow" d="M 480 395 L 600 395" />
+
+                <!-- Audit trail -->
+                <path class="arrow" d="M 930 520 L 1050 520" stroke-dasharray="3,3" />
+            </svg>
+
+            <!-- Labels -->
+            <div class="label" style="left: 240px; top: 110px;">Trigger</div>
+            <div class="label" style="left: 490px; top: 110px;">Extract</div>
+            <div class="label" style="left: 740px; top: 110px;">Evaluate</div>
+            <div class="label" style="left: 800px; top: 180px;">Low Conf</div>
+            <div class="label" style="left: 940px; top: 180px;">High Conf</div>
+            <div class="label" style="left: 620px; top: 420px;">Accept</div>
+            <div class="label" style="left: 800px; top: 350px;">Escalate</div>
+            <div class="label" style="left: 850px; top: 570px;">Store</div>
+
+            <!-- Legend -->
+            <div class="legend">
+                <h3>Component Types</h3>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #667eea, #764ba2);"></div>
+                    <span>Storage</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #48bb78, #38a169);"></div>
+                    <span>Processing</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #ed8936, #dd6b20);"></div>
+                    <span>Decision</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #4299e1, #3182ce);"></div>
+                    <span>Human Review</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: linear-gradient(135deg, #f687b3, #ed64a6);"></div>
+                    <span>Monitoring</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metrics Dashboard -->
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="metric-value">100%</div>
+                <div class="metric-label">Target Accuracy</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">$0.26</div>
+                <div class="metric-label">Cost per Course</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">5 min</div>
+                <div class="metric-label">Avg Processing Time</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">60%</div>
+                <div class="metric-label">Consensus Threshold</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Add interactivity
+        document.querySelectorAll('.node').forEach(node => {
+            node.addEventListener('click', function () {
+                // Flash animation on click
+                this.style.transform = 'scale(1.1)';
+                setTimeout(() => {
+                    this.style.transform = 'scale(1)';
+                }, 200);
+            });
+        });
+
+        // Animate metrics on load
+        window.addEventListener('load', () => {
+            document.querySelectorAll('.metric-value').forEach((metric, index) => {
+                metric.style.opacity = '0';
+                metric.style.transform = 'translateY(20px)';
+                setTimeout(() => {
+                    metric.style.transition = 'all 0.5s ease';
+                    metric.style.opacity = '1';
+                    metric.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
+</body>
+
+</html>
