@@ -87,7 +87,7 @@ class DeepseekOCRProcessingInfo(BaseProcessingInfo):
                 # print('===========')
                 # print('crop_ratio ', crop_ratio)
                 # print('============')
-                
+
             num_width_tiles, num_height_tiles = crop_ratio
         else:
             num_width_tiles = num_height_tiles = 1
@@ -150,7 +150,7 @@ class DeepseekOCRDummyInputsBuilder(
 
 class DeepseekOCRMultiModalProcessor(
         BaseMultiModalProcessor[DeepseekOCRProcessingInfo]):
-    
+
 
     def _call_hf_processor(
         self,
@@ -158,8 +158,8 @@ class DeepseekOCRMultiModalProcessor(
         mm_data: Mapping[str, object],
         mm_kwargs: Mapping[str, object],
     ) -> BatchFeature:
-        
-        
+
+
         # print(mm_data)
         if mm_data:
             processed_outputs = self.info.ctx.call_hf_processor(
@@ -209,7 +209,7 @@ class DeepseekOCRMultiModalProcessor(
                 num_image_tokens = images.get_feature_size(item_idx)
             else:
 
-                
+
                 width = images[0][-1][0][0]
                 height = images[0][-1][0][1]
 
@@ -293,7 +293,7 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
         self.projector =  MlpProjector(Dict(projector_type="linear", input_dim=2048, n_embed=n_embed))
         self.tile_tag = config.tile_tag
         self.global_view_pos = config.global_view_pos
-    
+
         # self.sam_model = torch.compile(self.sam_model, mode="reduce-overhead")
         # self.vision_model = torch.compile(self.vision_model, mode="reduce-overhead")
         # self.projector = torch.compile(self.projector, mode="max-autotune")
@@ -333,7 +333,7 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
 
     def _parse_and_validate_image_input(
             self, **kwargs: object):
-        
+
         pixel_values = kwargs.pop("pixel_values", None)
         images_spatial_crop = kwargs.pop("images_spatial_crop", None)
         images_crop = kwargs.pop("images_crop", None)
@@ -350,7 +350,7 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
             if not isinstance(images_spatial_crop, (torch.Tensor, list)):
                 raise ValueError("Incorrect type of image sizes. "
                                  f"Got type: {type(images_spatial_crop)}")
-            
+
             if not isinstance(images_crop, (torch.Tensor, list)):
                 raise ValueError("Incorrect type of image crop. "
                                  f"Got type: {type(images_crop)}")
@@ -359,7 +359,7 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
 
 
         raise AssertionError("This line should be unreachable.")
-    
+
 
 
     def _pixel_values_to_embedding(
@@ -384,27 +384,29 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
 
         with torch.no_grad():
             for jdx in range(images_spatial_crop.size(0)):
-                # with torch.set_grad_enabled(False):
-                patches = images_crop[jdx][0].to(torch.bfloat16) # batch_size = 1
-                image_ori = pixel_values[jdx]
+                # Ensure patches & original image match SAM's weights dtype
+                sam_dtype = self.sam_model.patch_embed.proj.weight.dtype
+
+                patches = images_crop[jdx][0].to(sam_dtype)  # batch_size = 1
+                image_ori = pixel_values[jdx].to(sam_dtype)
                 crop_shape = images_spatial_crop[jdx][0]
 
                 if torch.sum(patches).item() != 0:  # if all values = 0, no crop
                     # P, C, H, W = patches.shape
                     # crop_flag = 1
                     local_features_1 = self.sam_model(patches)
-                    #TODO del patches 
+                    #TODO del patches
                     # torch.compiler.cudagraph_mark_step_begin()
-                    local_features_2 = self.vision_model(patches, local_features_1)  
+                    local_features_2 = self.vision_model(patches, local_features_1)
 
 
-                    local_features = torch.cat((local_features_2[:, 1:], local_features_1.flatten(2).permute(0, 2, 1)), dim=-1) 
+                    local_features = torch.cat((local_features_2[:, 1:], local_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
                     local_features = self.projector(local_features)
 
 
                     global_features_1 = self.sam_model(image_ori)
-                    global_features_2 = self.vision_model(image_ori, global_features_1) 
-                    global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1) 
+                    global_features_2 = self.vision_model(image_ori, global_features_1)
+                    global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
                     global_features = self.projector(global_features)
 
                     if PRINT_NUM_VIS_TOKENS:
@@ -437,11 +439,11 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
                     local_features = local_features.view(-1, n_dim2)
 
                     global_local_features = torch.cat([local_features, global_features, self.view_seperator[None, :]], dim=0)
-                
+
                 else:
                     global_features_1 = self.sam_model(image_ori)
-                    global_features_2 = self.vision_model(image_ori, global_features_1) 
-                    global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1) 
+                    global_features_2 = self.vision_model(image_ori, global_features_1)
+                    global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
                     global_features = self.projector(global_features)
 
                     if PRINT_NUM_VIS_TOKENS:
@@ -469,18 +471,13 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
 
     def _process_image_input(
             self, image_input) -> torch.Tensor:
-        
 
-        # image_input: [pixel_values, images_crop, images_spatial_crop]
-    
-        pixel_values = image_input[0].to(torch.bfloat16)
-        # print(image_input[1][0].shape)
-        # print(type(image_input[1]))
-        # exit()
 
-        # images_crop = image_input[1].to(torch.bfloat16)
-        images_crop = image_input[1]
-        # images_crop = image_input[1]
+        # Use the SAM model's dtype as the single source of truth
+        sam_dtype = self.sam_model.patch_embed.proj.weight.dtype
+
+        pixel_values = image_input[0].to(sam_dtype)
+        images_crop = image_input[1]  # dtype handled later per-patch
         images_spatial_crop = image_input[2].to(dtype=torch.long)
 
         # local_start = time.time()
@@ -503,7 +500,7 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
             return None
         vision_embeddings = self._process_image_input(image_input)
         return vision_embeddings
-    
+
 
 
     def get_input_embeddings(
@@ -511,7 +508,7 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
         input_ids: torch.Tensor,
         multimodal_embeddings: Optional[MultiModalEmbeddings] = None,
     ) -> torch.Tensor:
-        
+
 
 
         inputs_embeds = self.language_model.get_input_embeddings(input_ids)
@@ -525,7 +522,7 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
             # print(input_ids.shape)
             # print(type(inputs_embeds))
             # print(inputs_embeds.shape)
-            
+
         return inputs_embeds
 
     def forward(self,
@@ -564,7 +561,7 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
 
     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]) -> Set[str]:
         processed_weights = []
-        
+
         for name, tensor in weights:
             if 'sam_model' in name or 'vision_model' in name or 'projector' in name or 'image_newline' in name or 'view_seperator' in name:
                 new_name = name.replace('model.', '', 1)
@@ -572,7 +569,7 @@ class DeepseekOCRForCausalLM(nn.Module, SupportsMultiModal, SupportsPP):
                 new_name = 'language.' + name
 
             processed_weights.append((new_name, tensor))
-        
+
         loader = AutoWeightsLoader(self)
         autoloaded_weights = loader.load_weights(processed_weights, mapper=self.hf_to_vllm_mapper)
 

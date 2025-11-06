@@ -36,16 +36,30 @@ services:
     environment:
       # GPU configuration
       - CUDA_VISIBLE_DEVICES=0
-      - MODEL_PATH=/app/models/deepseek-ai/DeepSeek-OCR
+
+      # Model configuration - use Hugging Face repository ID
+      # vLLM will automatically download and cache the model
+      - MODEL_PATH=deepseek-ai/DeepSeek-OCR
+      - VLLM_TORCH_DTYPE=half
+
+      # Model caching directory
+      - HF_HOME=/app/models
+      - TRANSFORMERS_CACHE=/app/models
+      - HUGGINGFACE_HUB_CACHE=/app/models
+
+      # Performance settings
       - MAX_CONCURRENCY=5
       - GPU_MEMORY_UTILIZATION=0.85
       - VLLM_USE_V1=0
       - LOG_LEVEL=INFO
 
-      # S3 configuration for model storage (ECS-friendly)
-      - MODEL_CACHE_DIR=/app/models
-      - S3_MODEL_BUCKET=your-deepseek-ocr-models-bucket
-      - AWS_DEFAULT_REGION=us-east-1
+      # Optional: Hugging Face token if the model requires authentication
+      # - HF_TOKEN=your_huggingface_token_here
+
+      # S3 configuration for model storage (ECS-friendly) - Optional
+      # - MODEL_CACHE_DIR=/app/models
+      # - S3_MODEL_BUCKET=your-deepseek-ocr-models-bucket
+      # - AWS_DEFAULT_REGION=us-east-1
 
       # Optional: Add these for ECS
       # - AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
@@ -70,7 +84,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 180s  # 3 minutes for model loading
+      start_period: 300s  # 5 minutes for model download and loading
 
     # Logging configuration
     logging:

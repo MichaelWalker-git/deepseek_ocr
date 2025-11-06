@@ -11,7 +11,7 @@ WORKDIR /app
 
 # Minimal tools to fetch sources
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates && \
+    git ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Fetch upstream DeepSeek-OCR sources at build time
@@ -63,8 +63,13 @@ RUN pip install --no-cache-dir tokenizers==0.13.3 || echo "Using existing tokeni
 # Add the DeepSeek-OCR directory to PYTHONPATH
 ENV PYTHONPATH="/app/DeepSeek-OCR-vllm:${PYTHONPATH}"
 
-# Create directories for outputs
-RUN mkdir -p /app/outputs
+# Create directories for outputs and model cache
+RUN mkdir -p /app/outputs /app/models
+
+# Set default Hugging Face cache directory
+ENV HF_HOME="/app/models"
+ENV TRANSFORMERS_CACHE="/app/models"
+ENV HUGGINGFACE_HUB_CACHE="/app/models"
 
 # Make the scripts executable
 RUN chmod +x /app/start_server.py

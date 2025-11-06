@@ -72,7 +72,7 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
       blockDevices: [
         {
           deviceName: '/dev/xvda',
-          volume: ec2.BlockDeviceVolume.ebs(100, { // 100GB root volume
+          volume: ec2.BlockDeviceVolume.ebs(200, { // Increased to 200GB for model storage
             volumeType: ec2.EbsDeviceVolumeType.GP3,
             encrypted: true,
             deleteOnTermination: true,
@@ -91,6 +91,9 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
       'systemctl restart docker',
       // Configure GPU for container usage
       'nvidia-smi',
+      // Create directory for model cache
+      'mkdir -p /mnt/ecs-data/models',
+      'chmod 777 /mnt/ecs-data/models',
     );
 
     // Create Auto Scaling Group with mixed instances strategy
@@ -345,22 +348,34 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
       // GPU configuration
       gpuCount: 1, // Request 1 GPU
 
-      // Environment variables
+      // Environment variables - FIXED: Use HuggingFace repository ID, not local path
       environment: {
+        // GPU settings
         CUDA_VISIBLE_DEVICES: '0',
-        MODEL_PATH: '/app/models/deepseek-ai/DeepSeek-OCR',
+
+        // CRITICAL FIX: Use the HuggingFace repository ID instead of local path
+        MODEL_PATH: 'deepseek-ai/DeepSeek-OCR', // This is the HuggingFace repo ID
+        VLLM_TORCH_DTYPE: 'half',
+
+        // Model caching directories
+        HF_HOME: '/app/models',
+        TRANSFORMERS_CACHE: '/app/models',
+        HUGGINGFACE_HUB_CACHE: '/app/models',
+
+        // Performance settings
         MAX_CONCURRENCY: '5',
         GPU_MEMORY_UTILIZATION: '0.85',
         VLLM_USE_V1: '0',
         LOG_LEVEL: 'INFO',
-        // Add model caching to S3
+
+        // Optional: S3 backup for model cache (can be removed if not using S3)
         MODEL_CACHE_DIR: '/app/models',
         S3_MODEL_BUCKET: `${this.node.tryGetContext('environment')}-deepseek-ocr-models`,
       },
 
-      // Secrets
+      // Secrets (only if model is private)
       secrets: {
-        HUGGINGFACE_TOKEN: ecs.Secret.fromSecretsManager(secretsManager, 'HUGGINGFACE_TOKEN'),
+        // HUGGINGFACE_TOKEN: ecs.Secret.fromSecretsManager(secretsManager, 'HUGGINGFACE_TOKEN'),
       },
 
       // Logging
@@ -369,13 +384,13 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
         logGroup,
       }),
 
-      // Health check
+      // Health check with longer timeout for model download
       healthCheck: {
         command: ['CMD-SHELL', 'curl -f http://localhost:8000/health || exit 1'],
         interval: Duration.seconds(60),
         timeout: Duration.seconds(30),
-        retries: 5,
-        startPeriod: Duration.seconds(180), // 3 minutes for model loading
+        retries: 10, // Increased retries
+        startPeriod: Duration.seconds(300), // 10 minutes for initial model download
       },
 
       essential: true,
@@ -394,6 +409,21 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
       name: ecs.UlimitName.MEMLOCK,
       softLimit: -1,
       hardLimit: -1,
+    });
+
+    // Add mount points for model cache persistence (using host volume)
+    container.addMountPoints({
+      containerPath: '/app/models',
+      sourceVolume: 'model-cache',
+      readOnly: false,
+    });
+
+    // Add host volume for model cache
+    taskDefinition.addVolume({
+      name: 'model-cache',
+      host: {
+        sourcePath: '/mnt/ecs-data/models',
+      },
     });
 
     return taskDefinition;

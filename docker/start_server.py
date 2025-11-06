@@ -33,8 +33,7 @@ os.environ['VLLM_USE_V1'] = '0'
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 # Import DeepSeek-OCR components
-from config import INPUT_PATH, OUTPUT_PATH, PROMPT, CROP_MODE, MAX_CONCURRENCY, NUM_WORKERS
-MODEL_PATH = os.environ.get('MODEL_PATH', 'deepseek-ai/DeepSeek-OCR')
+from config import INPUT_PATH, OUTPUT_PATH, PROMPT, CROP_MODE, MAX_CONCURRENCY, NUM_WORKERS, MODEL_PATH, VLLM_TORCH_DTYPE
 from deepseek_ocr import DeepseekOCRForCausalLM
 from process.image_process import DeepseekOCRProcessor
 from vllm import LLM, SamplingParams
@@ -78,29 +77,46 @@ class BatchOCRResponse(BaseModel):
 def initialize_model():
     """Initialize the vLLM model"""
     global llm, sampling_params
-    
+
     if llm is None:
         print("Initializing DeepSeek-OCR model...")
-        
-        # Initialize vLLM engine
+        print(f"Model path from config: {MODEL_PATH}")
+
+        # Get environment variable overrides
+        model_path = os.environ.get('MODEL_PATH', MODEL_PATH)
+        print(f"Final model path: {model_path}")
+
+        # Set up model download directory if specified
+        hf_home = os.environ.get('HF_HOME', '/app/models')
+        os.environ['HF_HOME'] = hf_home
+        os.environ['TRANSFORMERS_CACHE'] = hf_home
+        os.environ['HUGGINGFACE_HUB_CACHE'] = hf_home
+        print(f"Model cache directory: {hf_home}")
+
+        dtype = os.environ.get('VLLM_TORCH_DTYPE', VLLM_TORCH_DTYPE)
+        print(f"dtype: {dtype}")
+
+        # Initialize vLLM engine with the Hugging Face repository ID
         llm = LLM(
-            model=MODEL_PATH,
+            model=model_path,  # Use HF repository ID: "deepseek-ai/DeepSeek-OCR"
             hf_overrides={"architectures": ["DeepseekOCRForCausalLM"]},
-            block_size=256,
-            enforce_eager=False,
+            block_size=128,
+            enforce_eager=True,
             trust_remote_code=True,
             max_model_len=8192,
             swap_space=0,
             max_num_seqs=MAX_CONCURRENCY,
             tensor_parallel_size=1,
             gpu_memory_utilization=0.9,
-            disable_mm_preprocessor_cache=True
+            disable_mm_preprocessor_cache=True,
+            download_dir=hf_home,  # Specify where to download and cache the model
+            dtype=dtype,  # 👈 IMPORTANT: use float16 for Tesla T4
         )
-        
+
         # Set up sampling parameters
         from process.ngram_norepeat import NoRepeatNGramLogitsProcessor
         logits_processors = [NoRepeatNGramLogitsProcessor(ngram_size=20, window_size=50, whitelist_token_ids={128821, 128822})]
-        
+
         sampling_params = SamplingParams(
             temperature=0.0,
             max_tokens=8192,
@@ -108,37 +124,37 @@ def initialize_model():
             skip_special_tokens=False,
             include_stop_str_in_output=True,
         )
-        
+
         print("Model initialization complete!")
 
 def pdf_to_images_high_quality(pdf_data: bytes, dpi: int = 144) -> List[Image.Image]:
     """Convert PDF bytes to high-quality PIL Images"""
     images = []
-    
+
     # Save PDF data to temporary file
     with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
         temp_pdf.write(pdf_data)
         temp_pdf_path = temp_pdf.name
-    
+
     try:
         pdf_document = fitz.open(temp_pdf_path)
         zoom = dpi / 72.0
         matrix = fitz.Matrix(zoom, zoom)
-        
+
         for page_num in range(pdf_document.page_count):
             page = pdf_document[page_num]
             pixmap = page.get_pixmap(matrix=matrix, alpha=False)
-            
+
             # Convert to PIL Image
             img_data = pixmap.tobytes("png")
             img = Image.open(io.BytesIO(img_data))
             images.append(img)
-        
+
         pdf_document.close()
     finally:
         # Clean up temporary file
         os.unlink(temp_pdf_path)
-    
+
     return images
 
 def process_single_image(image: Image.Image, prompt: str = PROMPT) -> str:
@@ -146,7 +162,7 @@ def process_single_image(image: Image.Image, prompt: str = PROMPT) -> str:
     print(f"[DEBUG] process_single_image called with prompt: {repr(prompt)}")
     print(f"[DEBUG] Prompt length: {len(prompt)} characters")
     print(f"[DEBUG] Prompt starts with <image>: {prompt.startswith('<image>')}")
-    
+
     # Create request format for vLLM
     request_item = {
         "prompt": prompt,
@@ -160,24 +176,24 @@ def process_single_image(image: Image.Image, prompt: str = PROMPT) -> str:
             )
         }
     }
-    
+
     print(f"[DEBUG] Request item prompt: {repr(request_item['prompt'])}")
     print(f"[DEBUG] Request item keys: {list(request_item.keys())}")
     print(f"[DEBUG] Multi-modal data type: {type(request_item['multi_modal_data'])}")
-    
+
     # Generate with vLLM
     print(f"[DEBUG] Sending request to vLLM...")
     outputs = llm.generate([request_item], sampling_params=sampling_params)
     result = outputs[0].outputs[0].text
-    
+
     print(f"[DEBUG] Model output (first 100 chars): {repr(result[:100])}")
     print(f"[DEBUG] Model output length: {len(result)} characters")
-    
+
     # Clean up result
-    if '<｜end▁of▁sentence｜>' in result:
-        result = result.replace('<｜end▁of▁sentence｜>', '')
+    if '<ï½œendâ–ofâ–sentenceï½œ>' in result:
+        result = result.replace('<ï½œendâ–ofâ–sentenceï½œ>', '')
         print(f"[DEBUG] Removed end-of-sentence tokens")
-    
+
     return result
 
 @app.on_event("startup")
@@ -196,7 +212,7 @@ async def health_check():
     return {
         "status": "healthy",
         "model_loaded": llm is not None,
-        "model_path": MODEL_PATH,
+        "model_path": os.environ.get('MODEL_PATH', MODEL_PATH),
         "cuda_available": torch.cuda.is_available(),
         "cuda_device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0
     }
@@ -206,35 +222,35 @@ async def process_image_endpoint(file: UploadFile = File(...), prompt: Optional[
     """Process a single image file with optional custom prompt"""
     try:
         print(f"[DEBUG] Image endpoint called for file: {file.filename}")
-        
+
         # Read image data
         image_data = await file.read()
         print(f"[DEBUG] Read {len(image_data)} bytes of image data")
-        
+
         # Convert to PIL Image
         image = Image.open(io.BytesIO(image_data)).convert('RGB')
         print(f"[DEBUG] Converted to PIL Image, size: {image.size}")
-        
+
         # Debug logging
         print(f"[DEBUG] Received prompt parameter: {repr(prompt)}")
         print(f"[DEBUG] Default PROMPT from config: {repr(PROMPT)}")
-        
+
         # Use provided prompt or default
         use_prompt = prompt if prompt else PROMPT
         print(f"[DEBUG] Image endpoint selected prompt: {repr(use_prompt)}")
         print(f"[DEBUG] Using custom prompt: {prompt is not None}")
-        
+
         # Process with DeepSeek-OCR
         print(f"[DEBUG] Sending image to DeepSeek-OCR...")
         result = process_single_image(image, use_prompt)
         print(f"[DEBUG] OCR complete, output length: {len(result)}")
-        
+
         return OCRResponse(
             success=True,
             result=result,
             page_count=1
         )
-        
+
     except Exception as e:
         print(f"[ERROR] Image endpoint failed: {str(e)}")
         return OCRResponse(
@@ -249,15 +265,15 @@ async def process_pdf_endpoint(file: UploadFile = File(...), prompt: Optional[st
         print(f"[DEBUG] PDF endpoint called for file: {file.filename}")
         print(f"[DEBUG] Received prompt parameter: {repr(prompt)}")
         print(f"[DEBUG] Default PROMPT from config: {repr(PROMPT)}")
-        
+
         # Read PDF data
         pdf_data = await file.read()
         print(f"[DEBUG] Read {len(pdf_data)} bytes of PDF data")
-        
+
         # Convert PDF to images
         images = pdf_to_images_high_quality(pdf_data, dpi=144)
         print(f"[DEBUG] Converted PDF to {len(images)} images")
-        
+
         if not images:
             print(f"[DEBUG] No images extracted from PDF")
             return BatchOCRResponse(
@@ -266,12 +282,12 @@ async def process_pdf_endpoint(file: UploadFile = File(...), prompt: Optional[st
                 total_pages=0,
                 filename=file.filename
             )
-        
+
         # Use provided prompt or default
         use_prompt = prompt if prompt else PROMPT
         print(f"[DEBUG] PDF endpoint selected prompt: {repr(use_prompt)}")
         print(f"[DEBUG] Using custom prompt: {prompt is not None}")
-        
+
         # Process each page
         results = []
         for page_num, image in enumerate(tqdm(images, desc="Processing pages")):
@@ -291,7 +307,7 @@ async def process_pdf_endpoint(file: UploadFile = File(...), prompt: Optional[st
                     error=f"Page {page_num + 1} error: {str(e)}",
                     page_count=page_num + 1
                 ))
-        
+
         print(f"[DEBUG] PDF processing complete: {len(results)} pages processed")
         return BatchOCRResponse(
             success=True,
@@ -299,7 +315,7 @@ async def process_pdf_endpoint(file: UploadFile = File(...), prompt: Optional[st
             total_pages=len(images),
             filename=file.filename
         )
-        
+
     except Exception as e:
         print(f"[ERROR] PDF endpoint failed: {str(e)}")
         return BatchOCRResponse(
@@ -313,18 +329,18 @@ async def process_pdf_endpoint(file: UploadFile = File(...), prompt: Optional[st
 async def process_batch_endpoint(files: List[UploadFile] = File(...), prompt: Optional[str] = Form(None)):
     """Process multiple files (images and PDFs) with optional custom prompt"""
     results = []
-    
+
     for file in files:
         if file.filename.lower().endswith('.pdf'):
             result = await process_pdf_endpoint(file, prompt)
         else:
             result = await process_image_endpoint(file, prompt)
-        
+
         results.append({
             "filename": file.filename,
             "result": result
         })
-    
+
     return {"success": True, "results": results}
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 import { StackProps, Stage } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
+import { DeepSeekOcrEcrConstruct } from '../constructs/deepseek-ocr-ecr';
 import { ApiGatewayStack } from '../stacks/api-gateway.stack';
-import { BackendAppStack } from '../stacks/backend-app.stack';
+import { EcrStack } from '../stacks/ecr.stack';
+import { EcsStack } from '../stacks/ecs.stack';
 import { KmsStack } from '../stacks/kms.stack';
 import { NetworkingStack } from '../stacks/networking.stack';
 
@@ -32,20 +34,26 @@ export class DevStage extends Stage {
 
     const { vpc, securityGroups } = networkingStack;
 
-    // Backend App Stack
-    const backendAppStack= new BackendAppStack(
+    // ECR Stack
+    const ecrStack = new EcrStack(this, 'DeepSeek-OCR-ECR-Stack');
+    const { repository } = ecrStack;
+
+    // ECS Stack
+    const ecsStack = new EcsStack(
       this,
-      'DeepSeek-OCR-Backend-App-Stack',
+      'DeepSeek-OCR-ECS-Stack',
       {
         vpc,
+        repository,
         securityGroups,
         env: { region: REGION },
         ...args,
       },
     );
 
-    backendAppStack.addDependency(kmsStack);
-    backendAppStack.addDependency(networkingStack);
+    ecsStack.addDependency(kmsStack);
+    ecsStack.addDependency(networkingStack);
+    ecsStack.addDependency(ecrStack);
 
     // const { loadBalancer } = backendAppStack;
     //
