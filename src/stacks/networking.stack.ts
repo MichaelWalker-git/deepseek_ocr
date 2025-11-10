@@ -17,6 +17,7 @@ export class NetworkingStack extends cdk.Stack {
   public readonly securityGroups: {
     ecs: ec2.SecurityGroup;
     alb: ec2.SecurityGroup;
+    lambdas: ec2.SecurityGroup;
   };
 
   constructor(scope: Construct, id: string, props: NetworkingProps) {
@@ -177,9 +178,17 @@ export class NetworkingStack extends cdk.Stack {
       'Allow health checks from ALB',
     );
 
+    //Lambdas security group
+    const lambdasSg = new ec2.SecurityGroup(this, getCdkConstructId({ resourceName: 'lambdas-security-group' }, this), {
+      vpc: this.vpc,
+      description: 'Security group for Lambdas',
+      allowAllOutbound: true,
+    });
+
     return {
       ecs: ecsSg,
       alb: albSg,
+      lambdas: lambdasSg,
     };
   }
 }

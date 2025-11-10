@@ -167,6 +167,7 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
     });
 
     this.loadBalancer.logAccessLogs(logsBucket, 'alb-access-logs');
+    this.loadBalancer.setAttribute('idle_timeout.timeout_seconds', '300');
 
     // Create target group
     this.targetGroup = new elbv2.ApplicationTargetGroup(this, getCdkConstructId({ resourceName: 'target-group' }, this), {

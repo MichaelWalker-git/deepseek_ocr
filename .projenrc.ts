@@ -25,6 +25,9 @@ const project = new awscdk.AwsCdkTypeScriptApp({
     'aws-sdk',
     'dotenv',
     'cdk-nag',
+    'axios',
+    'form-data',
+    'aws-lambda',
   ],
 
   devDeps: [

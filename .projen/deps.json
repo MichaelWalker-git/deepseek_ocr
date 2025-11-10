@@ -107,7 +107,15 @@
       "type": "runtime"
     },
     {
+      "name": "aws-lambda",
+      "type": "runtime"
+    },
+    {
       "name": "aws-sdk",
+      "type": "runtime"
+    },
+    {
+      "name": "axios",
       "type": "runtime"
     },
     {
@@ -121,6 +129,10 @@
     },
     {
       "name": "dotenv",
+      "type": "runtime"
+    },
+    {
+      "name": "form-data",
       "type": "runtime"
     }
   ],

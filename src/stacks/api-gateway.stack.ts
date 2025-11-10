@@ -1,16 +1,18 @@
 import { RemovalPolicy } from 'aws-cdk-lib';
 import * as cdk from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
-import { ResponseType } from 'aws-cdk-lib/aws-apigateway';
+import { LambdaIntegration, ResponseType } from 'aws-cdk-lib/aws-apigateway';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as kms from 'aws-cdk-lib/aws-kms';
+import { IFunction } from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import { getCdkConstructId } from '../shared/cdk-helpers';
 
 export interface ApiGatewayProps extends cdk.StackProps {
   vpc: ec2.IVpc;
+  startProcessingLambda: IFunction;
   loadBalancer: elbv2.IApplicationLoadBalancer;
   enableApiKeys?: boolean;
   usagePlan?: {
@@ -33,6 +35,7 @@ export class ApiGatewayStack extends cdk.Stack {
     const {
       vpc,
       loadBalancer,
+      startProcessingLambda,
       enableApiKeys = true,
       usagePlan = {
         throttleRateLimit: 100,
@@ -169,7 +172,7 @@ export class ApiGatewayStack extends cdk.Stack {
     this.requestValidator = this.createRequestValidator(scope);
 
     // Add API resources and methods
-    this.createApiResources(loadBalancer, scope);
+    this.createApiResources(loadBalancer, startProcessingLambda);
 
     // Create API Key and Usage Plan if enabled
     if (enableApiKeys) {
@@ -177,7 +180,7 @@ export class ApiGatewayStack extends cdk.Stack {
     }
   }
 
-  private createApiResources(loadBalancer: elbv2.IApplicationLoadBalancer, scope: Construct): void {
+  private createApiResources(loadBalancer: elbv2.IApplicationLoadBalancer, startProcessingLambda: IFunction): void {
     // Health check endpoint - specific integration
     const health = this.api.root.addResource('health');
     const healthIntegration = new apigateway.Integration({
@@ -186,6 +189,7 @@ export class ApiGatewayStack extends cdk.Stack {
       uri: `http://${loadBalancer.loadBalancerDnsName}/health`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
+        timeout: cdk.Duration.seconds(29),
         requestParameters: {
           'integration.request.header.Accept': "'application/json'",
         },
@@ -223,6 +227,7 @@ export class ApiGatewayStack extends cdk.Stack {
       uri: `http://${loadBalancer.loadBalancerDnsName}/ocr/image`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
+        timeout: cdk.Duration.seconds(29),
         requestParameters: {
           'integration.request.header.Content-Type': 'method.request.header.Content-Type',
           'integration.request.header.X-Api-Key': 'method.request.header.X-Api-Key',
@@ -263,6 +268,7 @@ export class ApiGatewayStack extends cdk.Stack {
       uri: `http://${loadBalancer.loadBalancerDnsName}/ocr/pdf`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
+        timeout: cdk.Duration.seconds(29),
         requestParameters: {
           'integration.request.header.Content-Type': 'method.request.header.Content-Type',
           'integration.request.header.X-Api-Key': 'method.request.header.X-Api-Key',
@@ -303,6 +309,7 @@ export class ApiGatewayStack extends cdk.Stack {
       uri: `http://${loadBalancer.loadBalancerDnsName}/ocr/batch`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
+        timeout: cdk.Duration.seconds(29),
         requestParameters: {
           'integration.request.header.Content-Type': 'method.request.header.Content-Type',
           'integration.request.header.X-Api-Key': 'method.request.header.X-Api-Key',
@@ -335,6 +342,25 @@ export class ApiGatewayStack extends cdk.Stack {
       ],
     });
 
+    // s3 OCR endpoint
+    const s3 = ocr.addResource('s3');
+    s3.addMethod('POST', new LambdaIntegration(startProcessingLambda), {
+      requestValidator: this.requestValidator,
+      apiKeyRequired: true,
+      requestParameters: {
+        'method.request.header.Content-Type': true,
+        'method.request.header.X-Api-Key': true,
+      },
+      methodResponses: [
+        {
+          statusCode: '200',
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': true,
+          },
+        },
+      ],
+    });
+
     // Add a catch-all proxy resource for any other paths
     // This uses the {proxy+} pattern correctly
     const proxyResource = this.api.root.addResource('{proxy+}');
@@ -344,6 +370,7 @@ export class ApiGatewayStack extends cdk.Stack {
       uri: `http://${loadBalancer.loadBalancerDnsName}/{proxy}`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
+        timeout: cdk.Duration.seconds(29),
         requestParameters: {
           'integration.request.path.proxy': 'method.request.path.proxy',
           'integration.request.header.Content-Type': 'method.request.header.Content-Type',

@@ -119,7 +119,7 @@ aws ecr describe-repositories --repository-names deepseek-ocr --region us-east-1
  || aws ecr create-repository --repository-name deepseek-ocr --region us-east-1
  
 # 3) Build the image
-docker-compose up -d
+docker-compose build
 
 # 4) Push the image
 docker compose push

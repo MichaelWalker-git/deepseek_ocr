@@ -62,6 +62,52 @@ app.add_middleware(
 llm = None
 sampling_params = None
 
+def get_sampling_params(
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+) -> SamplingParams:
+    """
+    Build SamplingParams for this request, overriding selected fields from the
+    global sampling_params while keeping all other settings identical.
+    """
+    global sampling_params
+
+    # Ensure base is initialized
+    if sampling_params is None:
+        initialize_model()
+
+    base = sampling_params
+
+    # Use overrides if provided, else fall back to base
+    temp = base.temperature if temperature is None else float(temperature)
+    tp = base.top_p if top_p is None else float(top_p)
+    mt = base.max_tokens if max_tokens is None else int(max_tokens)
+
+    # Clamp to safe ranges
+    temp = max(0.0, min(2.0, temp))
+    tp = max(0.0, min(1.0, tp))
+    mt = max(1, min(8192, mt))
+
+    # If nothing changed, reuse base object
+    if (
+            temp == base.temperature and
+            tp == base.top_p and
+            mt == base.max_tokens
+    ):
+        return base
+
+    # Otherwise create a new SamplingParams with same extras as base
+    return SamplingParams(
+        temperature=temp,
+        top_p=tp,
+        max_tokens=mt,
+        skip_special_tokens=base.skip_special_tokens,
+        include_stop_str_in_output=base.include_stop_str_in_output,
+        stop=base.stop,
+        logits_processors=base.logits_processors,
+    )
+
 class OCRResponse(BaseModel):
     success: bool
     result: Optional[str] = None
@@ -100,7 +146,6 @@ def initialize_model():
         llm = LLM(
             model=model_path,  # Use HF repository ID: "deepseek-ai/DeepSeek-OCR"
             hf_overrides={"architectures": ["DeepseekOCRForCausalLM"]},
-            block_size=128,
             enforce_eager=True,
             trust_remote_code=True,
             max_model_len=8192,
@@ -110,7 +155,7 @@ def initialize_model():
             gpu_memory_utilization=0.9,
             disable_mm_preprocessor_cache=True,
             download_dir=hf_home,  # Specify where to download and cache the model
-            dtype=dtype,  # 👈 IMPORTANT: use float16 for Tesla T4
+            dtype=dtype,  # Use float16 for Tesla T4 and similar GPUs
         )
 
         # Set up sampling parameters
@@ -118,8 +163,9 @@ def initialize_model():
         logits_processors = [NoRepeatNGramLogitsProcessor(ngram_size=20, window_size=50, whitelist_token_ids={128821, 128822})]
 
         sampling_params = SamplingParams(
-            temperature=0.0,
-            max_tokens=8192,
+            temperature=0.1,
+            top_p=0.95,
+            max_tokens=1500,
             logits_processors=logits_processors,
             skip_special_tokens=False,
             include_stop_str_in_output=True,
@@ -157,7 +203,13 @@ def pdf_to_images_high_quality(pdf_data: bytes, dpi: int = 144) -> List[Image.Im
 
     return images
 
-def process_single_image(image: Image.Image, prompt: str = PROMPT) -> str:
+def process_single_image(
+    image: Image.Image,
+    prompt: str = PROMPT,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+) -> str:
     """Process a single image with DeepSeek-OCR using the specified prompt"""
     print(f"[DEBUG] process_single_image called with prompt: {repr(prompt)}")
     print(f"[DEBUG] Prompt length: {len(prompt)} characters")
@@ -183,9 +235,12 @@ def process_single_image(image: Image.Image, prompt: str = PROMPT) -> str:
 
     # Generate with vLLM
     print(f"[DEBUG] Sending request to vLLM...")
-    outputs = llm.generate([request_item], sampling_params=sampling_params)
-    result = outputs[0].outputs[0].text
+    sp = get_sampling_params(temperature=temperature, top_p=top_p, max_tokens=max_tokens)
+    outputs = llm.generate([request_item], sampling_params=sp)
+    if not outputs or not outputs[0].outputs:
+        raise RuntimeError("No output generated from model")
 
+    result = outputs[0].outputs[0].text
     print(f"[DEBUG] Model output (first 100 chars): {repr(result[:100])}")
     print(f"[DEBUG] Model output length: {len(result)} characters")
 
@@ -218,7 +273,13 @@ async def health_check():
     }
 
 @app.post("/ocr/image", response_model=OCRResponse)
-async def process_image_endpoint(file: UploadFile = File(...), prompt: Optional[str] = Form(None)):
+async def process_image_endpoint(
+    file: UploadFile = File(...),
+    prompt: Optional[str] = Form('<image>'),
+    temperature: Optional[float] = Form(None),
+    top_p: Optional[float] = Form(None),
+    max_tokens: Optional[int] = Form(None),
+):
     """Process a single image file with optional custom prompt"""
     try:
         print(f"[DEBUG] Image endpoint called for file: {file.filename}")
@@ -234,15 +295,22 @@ async def process_image_endpoint(file: UploadFile = File(...), prompt: Optional[
         # Debug logging
         print(f"[DEBUG] Received prompt parameter: {repr(prompt)}")
         print(f"[DEBUG] Default PROMPT from config: {repr(PROMPT)}")
+        print(f"[API] Sampling overrides: temperature={temperature}, top_p={top_p}, max_tokens={max_tokens}")
 
         # Use provided prompt or default
-        use_prompt = prompt if prompt else PROMPT
+        use_prompt = prompt if prompt and prompt.strip() else '<image>'
         print(f"[DEBUG] Image endpoint selected prompt: {repr(use_prompt)}")
         print(f"[DEBUG] Using custom prompt: {prompt is not None}")
 
         # Process with DeepSeek-OCR
         print(f"[DEBUG] Sending image to DeepSeek-OCR...")
-        result = process_single_image(image, use_prompt)
+        result = process_single_image(
+            image,
+            use_prompt,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+        )
         print(f"[DEBUG] OCR complete, output length: {len(result)}")
 
         return OCRResponse(
@@ -259,14 +327,21 @@ async def process_image_endpoint(file: UploadFile = File(...), prompt: Optional[
         )
 
 @app.post("/ocr/pdf", response_model=BatchOCRResponse)
-async def process_pdf_endpoint(file: UploadFile = File(...), prompt: Optional[str] = Form(None)):
+async def process_pdf_endpoint(
+    file: UploadFile = File(...),
+    prompt: Optional[str] = Form('<image>'),
+    temperature: Optional[float] = Form(None),
+    top_p: Optional[float] = Form(None),
+    max_tokens: Optional[int] = Form(None),
+):
     """Process a PDF file with optional custom prompt"""
     try:
         print(f"[DEBUG] PDF endpoint called for file: {file.filename}")
         print(f"[DEBUG] Received prompt parameter: {repr(prompt)}")
         print(f"[DEBUG] Default PROMPT from config: {repr(PROMPT)}")
+        print(f"[API] Sampling overrides: temperature={temperature}, top_p={top_p}, max_tokens={max_tokens}")
 
-        # Read PDF data
+       # Read PDF data
         pdf_data = await file.read()
         print(f"[DEBUG] Read {len(pdf_data)} bytes of PDF data")
 
@@ -290,16 +365,24 @@ async def process_pdf_endpoint(file: UploadFile = File(...), prompt: Optional[st
 
         # Process each page
         results = []
+        use_prompt = prompt if prompt and prompt.strip() else '<image>'
+
+        results = []
         for page_num, image in enumerate(tqdm(images, desc="Processing pages")):
             try:
-                print(f"[DEBUG] Processing page {page_num + 1}/{len(images)}")
-                result = process_single_image(image, use_prompt)
+                print(f"[API] Processing page {page_num + 1}/{len(images)}")
+                result = process_single_image(
+                    image,
+                    use_prompt,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
+                )
                 results.append(OCRResponse(
                     success=True,
                     result=result,
                     page_count=page_num + 1
                 ))
-                print(f"[DEBUG] Page {page_num + 1} processed successfully, output length: {len(result)}")
             except Exception as e:
                 print(f"[ERROR] Page {page_num + 1} failed: {str(e)}")
                 results.append(OCRResponse(
@@ -326,22 +409,49 @@ async def process_pdf_endpoint(file: UploadFile = File(...), prompt: Optional[st
         )
 
 @app.post("/ocr/batch")
-async def process_batch_endpoint(files: List[UploadFile] = File(...), prompt: Optional[str] = Form(None)):
+async def process_batch_endpoint(
+    files: List[UploadFile] = File(...),
+    prompt: Optional[str] = Form('<image>'),
+    temperature: Optional[float] = Form(None),
+    top_p: Optional[float] = Form(None),
+    max_tokens: Optional[int] = Form(None),
+):
     """Process multiple files (images and PDFs) with optional custom prompt"""
     results = []
 
+    print(f"[API] Batch endpoint called with {len(files)} files")
+    print(f"[API] Prompt parameter: {repr(prompt)}")
+    print(f"[API] Sampling overrides: temperature={temperature}, top_p={top_p}, max_tokens={max_tokens}")
+
     for file in files:
+        print(f"[API] Processing file: {file.filename}")
+
         if file.filename.lower().endswith('.pdf'):
-            result = await process_pdf_endpoint(file, prompt)
+            result = await process_pdf_endpoint(
+                file=file,
+                prompt=prompt,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+            )
         else:
-            result = await process_image_endpoint(file, prompt)
+            result = await process_image_endpoint(
+                file=file,
+                prompt=prompt,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+            )
 
         results.append({
             "filename": file.filename,
-            "result": result
+            "result": result.dict() if hasattr(result, 'dict') else result
         })
 
-    return {"success": True, "results": results}
+    return {
+        "success": True,
+        "results": results
+    }
 
 if __name__ == "__main__":
     print("Starting DeepSeek-OCR API server...")

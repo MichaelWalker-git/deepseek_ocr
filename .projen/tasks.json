@@ -261,13 +261,13 @@
       },
       "steps": [
         {
-          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@types/aws-lambda,@types/node,esbuild,eslint-import-resolver-typescript,eslint-plugin-import,projen,ts-jest,ts-node,typescript,@aws-sdk/client-dynamodb,@aws-sdk/client-ecr,@aws-sdk/client-ecs,@aws-sdk/client-lambda,@aws-sdk/client-s3,@aws-sdk/client-sagemaker-a2i-runtime,@aws-sdk/client-sfn,@aws-sdk/lib-dynamodb,@aws-sdk/s3-request-presigner,@aws-sdk/util-dynamodb,aws-sdk,cdk-nag,dotenv"
+          "exec": "pnpm dlx npm-check-updates@16 --upgrade --target=minor --peer --no-deprecated --dep=dev,peer,prod,optional --filter=@types/aws-lambda,@types/node,esbuild,eslint-import-resolver-typescript,eslint-plugin-import,projen,ts-jest,ts-node,typescript,@aws-sdk/client-dynamodb,@aws-sdk/client-ecr,@aws-sdk/client-ecs,@aws-sdk/client-lambda,@aws-sdk/client-s3,@aws-sdk/client-sagemaker-a2i-runtime,@aws-sdk/client-sfn,@aws-sdk/lib-dynamodb,@aws-sdk/s3-request-presigner,@aws-sdk/util-dynamodb,aws-lambda,aws-sdk,axios,cdk-nag,dotenv,form-data"
         },
         {
           "exec": "pnpm i --no-frozen-lockfile"
         },
         {
-          "exec": "pnpm update @stylistic/eslint-plugin @types/aws-lambda @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser aws-cdk esbuild eslint-import-resolver-typescript eslint-plugin-import eslint projen ts-jest ts-node typescript @aws-sdk/client-dynamodb @aws-sdk/client-ecr @aws-sdk/client-ecs @aws-sdk/client-lambda @aws-sdk/client-s3 @aws-sdk/client-sagemaker-a2i-runtime @aws-sdk/client-sfn @aws-sdk/lib-dynamodb @aws-sdk/s3-request-presigner @aws-sdk/util-dynamodb aws-cdk-lib aws-sdk cdk-nag constructs dotenv"
+          "exec": "pnpm update @stylistic/eslint-plugin @types/aws-lambda @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser aws-cdk esbuild eslint-import-resolver-typescript eslint-plugin-import eslint projen ts-jest ts-node typescript @aws-sdk/client-dynamodb @aws-sdk/client-ecr @aws-sdk/client-ecs @aws-sdk/client-lambda @aws-sdk/client-s3 @aws-sdk/client-sagemaker-a2i-runtime @aws-sdk/client-sfn @aws-sdk/lib-dynamodb @aws-sdk/s3-request-presigner @aws-sdk/util-dynamodb aws-cdk-lib aws-lambda aws-sdk axios cdk-nag constructs dotenv form-data"
         },
         {
           "exec": "npx projen"

@@ -1,11 +1,12 @@
 import { StackProps, Stage } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { DeepSeekOcrEcrConstruct } from '../constructs/deepseek-ocr-ecr';
 import { ApiGatewayStack } from '../stacks/api-gateway.stack';
 import { EcrStack } from '../stacks/ecr.stack';
 import { EcsStack } from '../stacks/ecs.stack';
 import { KmsStack } from '../stacks/kms.stack';
+import { LambdasStack } from '../stacks/lambdas.stack';
 import { NetworkingStack } from '../stacks/networking.stack';
+import { S3Stack } from '../stacks/s3.stack';
 
 const REGION = process.env.CDK_DEFAULT_REGION || '';
 
@@ -26,6 +27,7 @@ export class DevStage extends Stage {
 
     // KMS Stack
     const kmsStack = new KmsStack(this, 'DeepSeek-OCR-KMS-Stack');
+    const { kmsKey } = kmsStack;
 
     // Network Stack
     const networkingStack = new NetworkingStack(this, 'DeepSeek-OCR-Networking-Stack', {
@@ -46,26 +48,33 @@ export class DevStage extends Stage {
         vpc,
         repository,
         securityGroups,
-        env: { region: REGION },
         ...args,
       },
     );
 
-    ecsStack.addDependency(kmsStack);
-    ecsStack.addDependency(networkingStack);
-    ecsStack.addDependency(ecrStack);
+    const { loadBalancer } = ecsStack;
 
-    // const { loadBalancer } = backendAppStack;
-    //
-    // // Api Stack
-    // const apiGatewayStack = new ApiGatewayStack(this, 'Api-Stack', {
-    //   vpc,
-    //   loadBalancer,
-    // });
-    //
-    // apiGatewayStack.addDependency(kmsStack);
-    // apiGatewayStack.addDependency(networkingStack);
-    // apiGatewayStack.addDependency(backendAppStack);
+    // s3 Stack
+    const s3Stack = new S3Stack(this, 'DeepSeek-OCR-S3-Stack', {
+      kmsKey,
+    });
+    const { filesBucket } = s3Stack;
 
+    // Lambdas Stack
+    const lambdasStack = new LambdasStack(this, 'DeepSeek-OCR-Lambdas-Stack', {
+      vpc,
+      kmsKey,
+      fileBucketName: filesBucket.bucketName,
+      securityGroup: securityGroups.lambdas,
+      loadBalancerUrl: loadBalancer.loadBalancerDnsName,
+    });
+    const { startProcessingLambda } = lambdasStack;
+
+    // Api Stack
+    const apiGatewayStack = new ApiGatewayStack(this, 'DeepSeek-OCR-Api-Stack', {
+      vpc,
+      loadBalancer,
+      startProcessingLambda,
+    });
   }
 }

@@ -48,7 +48,7 @@ docker-compose logs -f deepseek-ocr
 ```
 
 ### Linux/macOS Users
-
+ 
 ```bash
 # Build the Docker image
 docker-compose build
