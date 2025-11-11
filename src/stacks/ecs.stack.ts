@@ -1,7 +1,7 @@
+import path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import { Fn } from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import { Repository } from 'aws-cdk-lib/aws-ecr';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Key } from 'aws-cdk-lib/aws-kms';
@@ -11,7 +11,6 @@ import { getCdkConstructId } from '../shared/cdk-helpers';
 
 export interface StackProps {
   vpc: ec2.IVpc;
-  repository: Repository;
   securityGroups: {
     ecs: ec2.SecurityGroup;
     alb: ec2.SecurityGroup;
@@ -24,7 +23,7 @@ export class EcsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, args: StackProps) {
     super(scope, id);
 
-    const { vpc, securityGroups, repository } = args;
+    const { vpc, securityGroups } = args;
 
     const exportKmsArn = getCdkConstructId({ resourceName: 'kms-arn' }, scope);
     const kmsArn = Fn.importValue(exportKmsArn);
@@ -46,11 +45,10 @@ export class EcsStack extends cdk.Stack {
     const ecsClusterConstruct = new DeepSeekOcrEc2GpuConstruct(this, 'EcsGpuService', {
       vpc,
       securityGroups,
-      ecrRepository: repository,
-      imageTag: 'latest',
       minCapacity: 1,
       maxCapacity: 1,
       desiredCapacity: 1,
+      dockerBuildContext: path.join(__dirname, '../../docker'),
       kmsKey,
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.G4DN, ec2.InstanceSize.XLARGE),
       spotPrice: undefined,

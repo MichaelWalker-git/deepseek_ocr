@@ -13,7 +13,7 @@ import { getCdkConstructId } from '../shared/cdk-helpers';
 export interface ApiGatewayProps extends cdk.StackProps {
   vpc: ec2.IVpc;
   startProcessingLambda: IFunction;
-  loadBalancer: elbv2.IApplicationLoadBalancer;
+  loadBalancer?: elbv2.IApplicationLoadBalancer;
   enableApiKeys?: boolean;
   usagePlan?: {
     throttleRateLimit?: number;
@@ -172,7 +172,7 @@ export class ApiGatewayStack extends cdk.Stack {
     this.requestValidator = this.createRequestValidator(scope);
 
     // Add API resources and methods
-    this.createApiResources(loadBalancer, startProcessingLambda);
+    this.createApiResources({ loadBalancer, startProcessingLambda });
 
     // Create API Key and Usage Plan if enabled
     if (enableApiKeys) {
@@ -180,13 +180,20 @@ export class ApiGatewayStack extends cdk.Stack {
     }
   }
 
-  private createApiResources(loadBalancer: elbv2.IApplicationLoadBalancer, startProcessingLambda: IFunction): void {
+  private createApiResources({
+    loadBalancer,
+    startProcessingLambda,
+  }:
+  {
+    loadBalancer?: elbv2.IApplicationLoadBalancer;
+    startProcessingLambda: IFunction;
+  }): void {
     // Health check endpoint - specific integration
     const health = this.api.root.addResource('health');
     const healthIntegration = new apigateway.Integration({
       type: apigateway.IntegrationType.HTTP_PROXY,
       integrationHttpMethod: 'GET',
-      uri: `http://${loadBalancer.loadBalancerDnsName}/health`,
+      uri: `http://${loadBalancer?.loadBalancerDnsName || ''}/health`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
         timeout: cdk.Duration.seconds(29),
@@ -224,7 +231,7 @@ export class ApiGatewayStack extends cdk.Stack {
     const imageIntegration = new apigateway.Integration({
       type: apigateway.IntegrationType.HTTP_PROXY,
       integrationHttpMethod: 'POST',
-      uri: `http://${loadBalancer.loadBalancerDnsName}/ocr/image`,
+      uri: `http://${loadBalancer?.loadBalancerDnsName || ''}/ocr/image`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
         timeout: cdk.Duration.seconds(29),
@@ -265,7 +272,7 @@ export class ApiGatewayStack extends cdk.Stack {
     const pdfIntegration = new apigateway.Integration({
       type: apigateway.IntegrationType.HTTP_PROXY,
       integrationHttpMethod: 'POST',
-      uri: `http://${loadBalancer.loadBalancerDnsName}/ocr/pdf`,
+      uri: `http://${loadBalancer?.loadBalancerDnsName || ''}/ocr/pdf`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
         timeout: cdk.Duration.seconds(29),
@@ -306,7 +313,7 @@ export class ApiGatewayStack extends cdk.Stack {
     const batchIntegration = new apigateway.Integration({
       type: apigateway.IntegrationType.HTTP_PROXY,
       integrationHttpMethod: 'POST',
-      uri: `http://${loadBalancer.loadBalancerDnsName}/ocr/batch`,
+      uri: `http://${loadBalancer?.loadBalancerDnsName || ''}/ocr/batch`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
         timeout: cdk.Duration.seconds(29),
@@ -367,7 +374,7 @@ export class ApiGatewayStack extends cdk.Stack {
     const proxyIntegration = new apigateway.Integration({
       type: apigateway.IntegrationType.HTTP_PROXY,
       integrationHttpMethod: 'ANY',
-      uri: `http://${loadBalancer.loadBalancerDnsName}/{proxy}`,
+      uri: `http://${loadBalancer?.loadBalancerDnsName || ''}/{proxy}`,
       options: {
         connectionType: apigateway.ConnectionType.INTERNET,
         timeout: cdk.Duration.seconds(29),

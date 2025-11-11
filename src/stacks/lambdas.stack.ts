@@ -12,7 +12,7 @@ export interface LambdasStackProps extends cdk.StackProps {
   kmsKey: IKey;
   fileBucketName: string;
   securityGroup: SecurityGroup;
-  loadBalancerUrl: string;
+  loadBalancerUrl?: string;
 }
 
 export class LambdasStack extends cdk.Stack {
@@ -49,7 +49,7 @@ export class LambdasStack extends cdk.Stack {
     this.startProcessingLambda = startProcessing(this, {
       REGION: this.region,
       FILES_BUCKET: fileBucketName,
-      ALB_URL: loadBalancerUrl,
+      ALB_URL: loadBalancerUrl || '',
     }, startProcessingRole, vpc, securityGroup);
   }
 }

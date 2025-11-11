@@ -25,11 +25,7 @@ new DevStage(
   app,
   STAGES.dev,
   props,
-  {
-    env: { region: CDK_DEFAULT_REGION, account: CDK_DEFAULT_ACCOUNT },
-  },
 );
-
 
 // Synthesize the CloudFormation templates
 app.synth();

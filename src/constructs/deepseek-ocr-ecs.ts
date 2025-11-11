@@ -1,7 +1,7 @@
-import { Duration, RemovalPolicy, Size } from 'aws-cdk-lib';
+import { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
-import * as ecr from 'aws-cdk-lib/aws-ecr';
+import { DockerImageAsset, Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -18,8 +18,6 @@ export interface DeepSeekOcrEc2GpuProps {
     ecs: ec2.SecurityGroup;
     alb: ec2.SecurityGroup;
   };
-  ecrRepository: ecr.IRepository;
-  imageTag?: string;
   minCapacity?: number;
   maxCapacity?: number;
   desiredCapacity?: number;
@@ -27,6 +25,7 @@ export interface DeepSeekOcrEc2GpuProps {
   accessLogsBucket?: s3.IBucket;
   instanceType?: ec2.InstanceType;
   spotPrice?: string;
+  dockerBuildContext: string;
 }
 
 export class DeepSeekOcrEc2GpuConstruct extends Construct {
@@ -37,6 +36,7 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
   public readonly targetGroup: elbv2.ApplicationTargetGroup;
   public readonly listener: elbv2.ApplicationListener;
   public readonly autoScalingGroup: autoscaling.AutoScalingGroup;
+  public readonly dockerImageAsset: DockerImageAsset;
 
   constructor(scope: Construct, id: string, props: DeepSeekOcrEc2GpuProps) {
     super(scope, id);
@@ -44,8 +44,6 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
     const {
       vpc,
       securityGroups,
-      ecrRepository,
-      imageTag = 'latest',
       minCapacity = 1,
       maxCapacity = 3,
       desiredCapacity = 1, // Start with 1 GPU instance
@@ -53,6 +51,7 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
       accessLogsBucket,
       instanceType = ec2.InstanceType.of(ec2.InstanceClass.G4DN, ec2.InstanceSize.XLARGE),
       spotPrice,
+      dockerBuildContext,
     } = props;
 
     // Create ECS cluster
@@ -198,10 +197,30 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
       defaultTargetGroups: [this.targetGroup],
     });
 
+    this.dockerImageAsset = new DockerImageAsset(this, getCdkConstructId({ resourceName: 'docker-image' }, this), {
+      directory: dockerBuildContext,
+      file: 'Dockerfile',
+      platform: Platform.LINUX_AMD64,
+      exclude: [
+        'node_modules',
+        'cdk.out',
+        '.git',
+        '*.md',
+        '.env',
+        '.env.*',
+        'README.md',
+        '.gitignore',
+        '.dockerignore',
+        'outputs/**',
+      ],
+      invalidation: {
+        buildArgs: false,
+      },
+    });
+
     // Create task definition
     this.taskDefinition = this.createTaskDefinition(
-      ecrRepository,
-      imageTag,
+      this.dockerImageAsset.imageUri,
       kmsKey,
     );
 
@@ -257,8 +276,7 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
   }
 
   private createTaskDefinition(
-    ecrRepository: ecr.IRepository,
-    imageTag: string,
+    imageUri: string,
     kmsKey: kms.IKey,
   ): ecs.Ec2TaskDefinition {
     // Create task execution role
@@ -326,6 +344,9 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
       encryptionKey: kmsKey,
     });
 
+    // Determine which image to use
+    const containerImage = ecs.ContainerImage.fromRegistry(imageUri);
+
     // Create secrets for sensitive environment variables
     const secretsManager = new secretsmanager.Secret(this, getCdkConstructId({ resourceName: 'env-secrets' }, this), {
       description: 'Environment secrets for DeepSeek OCR GPU container',
@@ -340,7 +361,7 @@ export class DeepSeekOcrEc2GpuConstruct extends Construct {
 
     // Add container with GPU support
     const container = taskDefinition.addContainer(getCdkConstructId({ resourceName: 'gpu-container' }, this), {
-      image: ecs.ContainerImage.fromEcrRepository(ecrRepository, imageTag),
+      image: containerImage,
 
       // Allocate significant resources for the GPU model
       memoryReservationMiB: 14336, // 14GB (leaving 2GB for system on g4dn.xlarge with 16GB)
