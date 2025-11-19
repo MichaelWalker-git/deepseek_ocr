@@ -54,8 +54,11 @@ RUN pip install --no-cache-dir \
     uvicorn[standard]==0.24.0 \
     python-multipart==0.0.6
 
-# Install flash-attn for optimal performance (if not already included)
-RUN pip install --no-cache-dir flash-attn==2.7.3 --no-build-isolation || echo "flash-attn may already be installed"
+# Install flash-attn for optimal performance
+# Note: This requires CUDA toolkit and may fail on some systems
+RUN pip install --no-cache-dir flash-attn==2.7.3 --no-build-isolation || \
+    (echo "WARNING: flash-attn installation failed. The model will still work but may be slower." && \
+     echo "This is expected if CUDA development tools are not available in the base image.")
 
 # Downgrade tokenizers to compatible version if needed
 RUN pip install --no-cache-dir tokenizers==0.13.3 || echo "Using existing tokenizers version"
